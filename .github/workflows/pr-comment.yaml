@@ -37,7 +37,7 @@ jobs:
               return;
             }
 
-            const body = `✅ Docker images built successfully for all platforms!\n\nCI run: ${context.payload.workflow_run.html_url}`;
+            const body = `Docker images built successfully for all platforms.\n\nCI run: ${context.payload.workflow_run.html_url}`;
 
             for (const pr of associated) {
               await github.rest.issues.createComment({

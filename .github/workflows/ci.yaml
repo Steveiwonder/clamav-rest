@@ -6,10 +6,8 @@ on:
       - master
   workflow_dispatch:
 
-env:
-  REGISTRY_IMAGE: "${{ vars.DOCKER_USER }}/clamav-rest"
-
 permissions:
+  actions: read
   contents: read
   pull-requests: write
 
@@ -49,8 +47,7 @@ jobs:
         run: nix-instantiate --eval -E '(import <nixpkgs> {}).lib.version'
 
       - name: Build with nix-build
-        run: |
-          nix-build --argstr version "$(git describe --always --tags)"
+        run: nix-build --argstr version "$(git describe --always --tags)"
 
   build:
     runs-on: ubuntu-latest
@@ -64,9 +61,13 @@ jobs:
 
     steps:
       - name: Prepare
+        id: prepare
         run: |
           platform=${{ matrix.platform }}
-          echo "PLATFORM_PAIR=${platform//\//-}" >> $GITHUB_ENV
+          echo "PLATFORM_PAIR=${platform//\//-}" >> "$GITHUB_ENV"
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          echo "REGISTRY_IMAGE=$image" >> "$GITHUB_ENV"
+          echo "registry_image=$image" >> "$GITHUB_OUTPUT"
 
       - name: Checkout
         uses: actions/checkout@v6
@@ -79,7 +80,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v6
         with:
-          images: ${{ env.REGISTRY_IMAGE }}
+          images: ${{ steps.prepare.outputs.registry_image }}
           tags: |
             type=ref,event=pr
             type=sha
@@ -99,6 +100,7 @@ jobs:
             GO_VERSION=${{ steps.go-version.outputs.go_version }}
           platforms: ${{ matrix.platform }}
           labels: ${{ steps.meta.outputs.labels }}
+          tags: ${{ steps.meta.outputs.tags }}
           push: false
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -115,8 +117,9 @@ jobs:
     runs-on: ubuntu-latest
     needs: build
     steps:
-      - name: Checkout
-        uses: actions/checkout@v6
+      - name: Prepare
+        id: prepare
+        run: echo "REGISTRY_IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
 
       - name: Download amd64 image
         uses: actions/download-artifact@v8
@@ -131,6 +134,5 @@ jobs:
 
       - name: Validate image
         run: |
-          # Test that the image runs
-          docker run --rm ${{ env.REGISTRY_IMAGE }}:sha-${GITHUB_SHA::7} --help || true
-          echo "✅ Image validation completed"
+          docker run --rm "${REGISTRY_IMAGE}:sha-${GITHUB_SHA::7}" --help || true
+          echo "Image validation completed"

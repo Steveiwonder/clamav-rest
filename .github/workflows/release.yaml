@@ -6,17 +6,12 @@ on:
       - master
   workflow_dispatch:
 
-env:
-  REGISTRY_IMAGE: "${{ vars.DOCKER_USER }}/clamav-rest"
-  REGISTRY_USER: ${{ vars.DOCKER_USER }}
-  REGISTRY_PASSWORD: ${{ secrets.DOCKER_PASSWORD }}
-
 permissions:
+  actions: read
   contents: write
   packages: write
 
 jobs:
-  # Determine the next semantic version based on commit messages
   version:
     runs-on: ubuntu-latest
     outputs:
@@ -36,11 +31,6 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           release_branches: master
           pre_release_branches: develop,beta
-          # Conventional commit prefixes:
-          # feat: minor version bump (new features)
-          # fix: patch version bump (bug fixes)
-          # BREAKING CHANGE: major version bump
-          # chore, docs, style, refactor, perf, test: no version bump
           default_bump: patch
           tag_prefix: v
 
@@ -56,18 +46,26 @@ jobs:
 
     steps:
       - name: Prepare
+        id: prepare
         run: |
           platform=${{ matrix.platform }}
-          echo "PLATFORM_PAIR=${platform//\//-}" >> $GITHUB_ENV
+          echo "PLATFORM_PAIR=${platform//\//-}" >> "$GITHUB_ENV"
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          echo "REGISTRY_IMAGE=$image" >> "$GITHUB_ENV"
+          echo "registry_image=$image" >> "$GITHUB_OUTPUT"
 
       - name: Checkout
         uses: actions/checkout@v6
+
+      - name: Read Go version from go.mod
+        id: go-version
+        run: echo "go_version=$(awk '/^go / {print $2}' go.mod)" >> "$GITHUB_OUTPUT"
 
       - name: Docker meta
         id: meta
         uses: docker/metadata-action@v6
         with:
-          images: ${{ env.REGISTRY_IMAGE }}
+          images: ${{ steps.prepare.outputs.registry_image }}
           tags: |
             type=semver,pattern={{version}},value=${{ needs.version.outputs.new_version }}
             type=semver,pattern={{major}}.{{minor}},value=${{ needs.version.outputs.new_version }}
@@ -81,20 +79,23 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Login to Docker Hub
+      - name: Login to GitHub Container Registry
         uses: docker/login-action@v4
         with:
-          username: ${{ env.REGISTRY_USER }}
-          password: ${{ env.REGISTRY_PASSWORD }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push by digest
         id: build
         uses: docker/build-push-action@v7
         with:
           context: .
+          build-args: |
+            GO_VERSION=${{ steps.go-version.outputs.go_version }}
           platforms: ${{ matrix.platform }}
           labels: ${{ steps.meta.outputs.labels }}
-          outputs: type=image,name=${{ env.REGISTRY_IMAGE }},push-by-digest=true,name-canonical=true,push=true
+          outputs: type=image,name=${{ steps.prepare.outputs.registry_image }},push-by-digest=true,name-canonical=true,push=true
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -118,6 +119,13 @@ jobs:
       - version
       - build
     steps:
+      - name: Prepare
+        id: prepare
+        run: |
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          echo "REGISTRY_IMAGE=$image" >> "$GITHUB_ENV"
+          echo "registry_image=$image" >> "$GITHUB_OUTPUT"
+
       - name: Download digests
         uses: actions/download-artifact@v8
         with:
@@ -132,7 +140,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v6
         with:
-          images: ${{ env.REGISTRY_IMAGE }}
+          images: ${{ steps.prepare.outputs.registry_image }}
           tags: |
             type=semver,pattern={{version}},value=${{ needs.version.outputs.new_version }}
             type=semver,pattern={{major}}.{{minor}},value=${{ needs.version.outputs.new_version }}
@@ -140,21 +148,30 @@ jobs:
             type=raw,value=latest,enable={{is_default_branch}}
             type=sha
 
-      - name: Login to Docker Hub
+      - name: Login to GitHub Container Registry
         uses: docker/login-action@v4
         with:
-          username: ${{ env.REGISTRY_USER }}
-          password: ${{ env.REGISTRY_PASSWORD }}
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create manifest list and push
         working-directory: /tmp/digests
         run: |
-          docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
-            $(printf '${{ env.REGISTRY_IMAGE }}@sha256:%s ' *)
+          tags=()
+          while IFS= read -r tag; do
+            tags+=("-t" "$tag")
+          done < <(jq -r '.tags[]' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+
+          refs=()
+          for digest in *; do
+            refs+=("${REGISTRY_IMAGE}@sha256:${digest}")
+          done
+
+          docker buildx imagetools create "${tags[@]}" "${refs[@]}"
 
       - name: Inspect image
-        run: |
-          docker buildx imagetools inspect ${{ env.REGISTRY_IMAGE }}:${{ needs.version.outputs.new_version }}
+        run: docker buildx imagetools inspect "${REGISTRY_IMAGE}:${{ needs.version.outputs.new_version }}"
 
       - name: Create GitHub Release
         uses: ncipollo/release-action@v1
@@ -162,23 +179,23 @@ jobs:
           tag: ${{ needs.version.outputs.new_tag }}
           name: Release ${{ needs.version.outputs.new_tag }}
           body: |
-            ## 🚀 Changes in this release
+            ## Changes in this release
 
             ${{ needs.version.outputs.changelog }}
 
-            ## 🐳 Docker Images
+            ## Container images
 
             Pull the latest release:
             ```bash
-            docker pull ${{ env.REGISTRY_IMAGE }}:${{ needs.version.outputs.new_version }}
-            docker pull ${{ env.REGISTRY_IMAGE }}:latest
+            docker pull ${{ steps.prepare.outputs.registry_image }}:${{ needs.version.outputs.new_version }}
+            docker pull ${{ steps.prepare.outputs.registry_image }}:latest
             ```
 
             Available tags:
             - `${{ needs.version.outputs.new_version }}` - Full semantic version
             - `latest` - Always points to the latest release
 
-            ## 📦 Multi-platform support
+            ## Multi-platform support
 
             Images are built for:
             - linux/amd64
