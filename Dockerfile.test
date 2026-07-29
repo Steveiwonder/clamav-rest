@@ -1,4 +1,4 @@
-ARG GO_VERSION=1.26.0
+ARG GO_VERSION=1.26.5
 FROM golang:${GO_VERSION}-alpine AS build
 
 RUN apk update && apk upgrade && apk add --no-cache git
@@ -43,6 +43,7 @@ RUN sed -i 's/^#Foreground .*$/Foreground yes/g' /etc/clamav/clamd.conf \
 RUN freshclam --quiet --no-dns
 
 COPY entrypoint.sh /usr/bin/
+RUN sed -i 's/\r$//' /usr/bin/entrypoint.sh
 COPY --from=build /out/clamav-rest /usr/bin/clamav-rest
 
 RUN chown -R clamav:clamav /clamav \
@@ -54,7 +55,10 @@ RUN chown -R clamav:clamav /clamav \
 RUN mkdir -p /clamav/tmp/ok /clamav/tmp/virus && \
 echo 'hello world' > /clamav/tmp/ok/test.txt
 
-COPY eicar.test /clamav/tmp/virus/
+RUN printf '%s%s%s\n' \
+    'X5O!P%@AP[4\PZX54(P^)7CC)7}' \
+    '$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!' \
+    '$H+H*' > /clamav/tmp/virus/eicar.test
 
 ENV PORT=9000
 ENV SSL_PORT=9443
@@ -83,7 +87,8 @@ COPY go.mod go.sum ./
 COPY tests/go-test ./tests/go-test
 COPY entrypoint_tests.sh run-go-tests ./
 
-RUN chmod 0755 /opt/clamav-rest/entrypoint_tests.sh /opt/clamav-rest/run-go-tests \
+RUN sed -i 's/\r$//' /opt/clamav-rest/entrypoint_tests.sh /opt/clamav-rest/run-go-tests \
+    && chmod 0755 /opt/clamav-rest/entrypoint_tests.sh /opt/clamav-rest/run-go-tests \
     && mkdir -p "$GOCACHE" "$GOMODCACHE" \
     && chown -R clamav:clamav /clamav/test
 

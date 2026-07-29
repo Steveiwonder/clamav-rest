@@ -1,4 +1,4 @@
-ARG GO_VERSION=1.26.0
+ARG GO_VERSION=1.26.5
 FROM golang:${GO_VERSION}-alpine AS build
 
 # Update libraries
@@ -44,6 +44,7 @@ RUN sed -i 's/^#Foreground .*$/Foreground yes/g' /etc/clamav/clamd.conf \
 RUN freshclam --quiet --no-dns
 
 COPY entrypoint.sh /usr/bin/
+RUN sed -i 's/\r$//' /usr/bin/entrypoint.sh
 
 RUN mkdir -p /clamav/etc \
     && mkdir -p /clamav/data \

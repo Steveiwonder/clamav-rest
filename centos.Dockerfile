@@ -44,6 +44,7 @@ RUN freshclam --quiet --no-dns
 ADD ./server.* /etc/ssl/clamav-rest/
 
 COPY entrypoint.sh /usr/bin/
+RUN sed -i 's/\r$//' /usr/bin/entrypoint.sh
 
 # Create folders for clamav so it matches what happens in entrypoint.sh
 RUN install -d -m 0775 -oclamupdate -groot /var/log/clamav /etc/clamav /clamav /clamav/etc /clamav/data /clamav/tmp \

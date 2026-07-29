@@ -78,12 +78,14 @@ The REST endpoints are now available on port 9000 (for http) and 9443 (for https
 
 If at least one virus is found, the API returns a `406 - Not Acceptable` response, a `200 - OK` otherwise.
 
-Verify that the service detects common test virus signatures:
+Verify that the service detects common test virus signatures. The repository does not
+store EICAR payload files; create or download a local EICAR test file before running
+these examples.
 
 **HTTP:**
 
 ```bash
-$ curl -i -F "file=@eicar.com.txt" http://localhost:9000/v2/scan
+$ curl -i -F "file=@/path/to/eicar.com.txt" http://localhost:9000/v2/scan
 HTTP/1.1 100 Continue
 
 HTTP/1.1 406 Not Acceptable
@@ -97,7 +99,7 @@ Content-Length: 56
 **HTTPS:**
 
 ```bash
-$ curl -i -k -F "file=@eicar.com.txt" https://localhost:9443/v2/scan
+$ curl -i -k -F "file=@/path/to/eicar.com.txt" https://localhost:9443/v2/scan
 HTTP/1.1 100 Continue
 
 HTTP/1.1 406 Not Acceptable
